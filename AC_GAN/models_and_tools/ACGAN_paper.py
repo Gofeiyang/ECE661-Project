@@ -39,6 +39,86 @@ class Conf:
         self.std = 0.01  # initialization std
 conf = Conf()
 
+class GeneratorP(nn.Module):
+    def __init__(self, conf):
+        super(GeneratorP, self).__init__()
+        # self.label_emb = nn.Embedding(conf.num_classes, conf.len_nz)
+        self.bias = True
+        # self.label_emb = nn.Embedding(conf.num_classes, conf.num_classes)
+        self.linear = nn.Sequential(
+            nn.Linear(conf.len_nz + conf.num_classes, 384 * 4 * 4),
+            nn.ReLU(True),
+        )
+        self.main = nn.Sequential(
+            nn.ConvTranspose2d(384, 192, 5, 2, 2, output_padding=1, bias=self.bias),  # + 4
+            nn.BatchNorm2d(192),
+            nn.ReLU(True),
+            # Subsequent layers follow the pattern from the table
+            nn.ConvTranspose2d(192, 96, 5, 2, 2, output_padding=1, bias=self.bias),
+            nn.BatchNorm2d(96),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(96, 3, 5, 2, 2, output_padding=1, bias=self.bias),
+            nn.Tanh()
+        )
+
+    def forward(self, noise, labels):
+        # labels_one_hot = self.label_emb(labels)
+        # labels_one_hot = torch.nn.functional.one_hot(labels, num_classes=10)
+        input = torch.cat((noise, labels), dim=1)
+        # print(input.shape)
+        # print(input_reshaped.shape)
+        input_linear = self.linear(input)
+        input_reshaped = input_linear.view(input.shape[0], -1, 4, 4)
+        output = self.main(input_reshaped)
+        # print(output.shape)
+        # Add activation noise
+        # noise = torch.randn_like(output) * 0.1
+        return output  # + noise
+
+
+class DiscriminatorP(nn.Module):
+    def __init__(self, conf):
+        self.bias = True
+        self.drop = conf.drop_out
+        self.relu_slope = conf.relu_slope
+        super(DiscriminatorP, self).__init__()
+        self.main = nn.Sequential(
+            nn.Conv2d(3, 16, 3, 2, 1, bias=self.bias),
+            nn.LeakyReLU(self.relu_slope, inplace=True),
+            nn.Dropout(self.drop),
+            nn.Conv2d(16, 32, 3, 1, 1, bias=self.bias),
+            nn.BatchNorm2d(32),
+            nn.LeakyReLU(self.relu_slope, inplace=True),
+            nn.Dropout(self.drop),
+            nn.Conv2d(32, 64, 3, 2, 1, bias=self.bias),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(self.relu_slope, inplace=True),
+            nn.Dropout(self.drop),
+            nn.Conv2d(64, 128, 3, 1, 1, bias=self.bias),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(self.relu_slope, inplace=True),
+            nn.Dropout(self.drop),
+            nn.Conv2d(128, 256, 3, 2, 1, bias=self.bias),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(self.relu_slope, inplace=True),
+            nn.Dropout(self.drop),
+            nn.Conv2d(256, 512, 3, 1, 1, bias=self.bias),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(self.relu_slope, inplace=True),
+            nn.Dropout(self.drop),
+
+        )
+
+        self.classification = nn.Sequential(
+            nn.Linear(512 * 4 * 4, 11),
+            nn.Sigmoid()
+        )
+    def forward(self, input):
+        output = self.main(input)
+        img_real = output.view(input.shape[0], -1)
+        classification = self.classification(img_real)
+        return classification[:, 0], classification[:, 1:]
+
 class Generator(nn.Module):
     def __init__(self, conf):
         super(Generator, self).__init__()
